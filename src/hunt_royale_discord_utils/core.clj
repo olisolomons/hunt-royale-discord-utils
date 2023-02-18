@@ -11,6 +11,7 @@
    [ring.adapter.jetty :refer [run-jetty]]))
 
 (def expr
+  #_:clj-kondo/ignore
   (nice-parser
    {:expr       :-expr
     (<> :-expr) #{:add :sub :term}
@@ -85,10 +86,8 @@
 
 (defn -main [& args]
   (case args
-    nil           (start-server)
-
-    '("register") (register)
-
+    nil          (start-server)
+    ("register") (register)
     (binding [*out* *err*]
       (println "Invalid args: " (str args))
       (System/exit 1))))
