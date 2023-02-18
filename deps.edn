@@ -1,0 +1,8 @@
+{:paths ["src"]
+ :deps  {org.clojure/clojure                       {:mvn/version "1.11.1"}
+         instaparse/instaparse                     {:mvn/version "1.4.12"}
+         net.mikera/core.matrix                    {:mvn/version "0.63.0"}
+         net.mikera/vectorz-clj                    {:mvn/version "0.48.0"}
+         com.github.johnnyjayjay/ring-discord-auth {:mvn/version "1.0.1"}
+         ring/ring                                 {:mvn/version "1.9.6"}
+         ring/ring-json                            {:mvn/version "0.5.1"}}}
