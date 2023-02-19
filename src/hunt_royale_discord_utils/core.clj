@@ -81,9 +81,11 @@
                           expr
                           eval-expr
                           res/pretty-resources)]
-           (if (ip/failure? result)
-             (print-str result)
-             (str value "\n= " result)))}}
+           (str "```\n"
+                (if (ip/failure? result)
+                  (print-str result)
+                  (str value "\n= " result))
+                "\n```"))}}
      3 {:type 6}))) ; ACK component presses but do nothing further
 
 (defn start-server

@@ -53,7 +53,6 @@
     resources
     (str/replace
      (->> (map (fn [quantity resource-type]
-                 (println quantity)
                  (when-not (zero? quantity)
                    (str (int quantity)
                         (if (keyword? resource-type)
