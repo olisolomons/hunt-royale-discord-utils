@@ -8,7 +8,10 @@
    [ring-discord-auth.ring :refer [wrap-authenticate]]
    [ring.middleware.json :refer [wrap-json-body wrap-json-response]]
    [ring.util.response :refer [response]]
-   [ring.adapter.jetty :refer [run-jetty]]))
+   [ring.adapter.jetty :refer [run-jetty]]
+   [discljord.messaging :as msg]
+   [discljord.connections :as conn]
+   [clojure.core.async :as a]))
 
 (def expr
   #_:clj-kondo/ignore
@@ -61,6 +64,7 @@
     :expr     identity}
    tree))
 
+(def token (System/getenv "TOKEN"))
 (def app-id (System/getenv "APP_ID"))
 (def public-key (System/getenv "PUBLIC_KEY"))
 
@@ -82,7 +86,18 @@
 
 (defn register
   []
-  (println "registering"))
+  (println "registering")
+  (let [api (msg/start-connection! token)
+        events (a/chan 100
+                       (comp (filter (comp #{:interaction-create} first))
+                             (map second)))
+        conn (conn/connect-bot! token events :intents #{})]
+     @(msg/create-global-application-command!
+              api app-id "calc"
+              "Evaluate a stone/resources/costs expression"
+              :options {:type 3
+                        :name "expression"
+                        :description "The expression to evaluate"})))
 
 (defn -main [& args]
   (case args
