@@ -68,11 +68,22 @@
 (def app-id (System/getenv "APP_ID"))
 (def public-key (System/getenv "PUBLIC_KEY"))
 
-(defn handler [{{:keys [type]} :body :as _request}]
+(defn handler
+  [{{:keys [type data]} :body :as _request}]
   (response
    (case type
      1 {:type 1} ; Respond to PING with PONG
-     2 {:type 4 :data {:content "Hello!"}}
+     2 {:type 4
+        :data
+        {:content
+         (let [[{:keys [value]}] (:options data)
+               result (-> value
+                          expr
+                          eval-expr
+                          res/pretty-resources)]
+           (if (ip/failure? result)
+             (print-str result)
+             (str value "\n= " result)))}}
      3 {:type 6}))) ; ACK component presses but do nothing further
 
 (defn start-server
