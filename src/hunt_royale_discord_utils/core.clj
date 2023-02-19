@@ -95,9 +95,9 @@
      @(msg/create-global-application-command!
               api app-id "calc"
               "Evaluate a stone/resources/costs expression"
-              :options {:type 3
-                        :name "expression"
-                        :description "The expression to evaluate"})))
+              :options [{:type 3
+                         :name "expression"
+                         :description "The expression to evaluate"}])))
 
 (defn -main [& args]
   (case args
@@ -109,5 +109,5 @@
 
 (comment
   (res/pretty-resources (eval-expr (expr "cost(4lvl6)-cost(500lvl1)")))
-
+  (register)
   )
