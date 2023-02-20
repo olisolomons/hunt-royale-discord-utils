@@ -75,7 +75,7 @@
   (reductions
    (fn [next-level-crafted [from to]]
      (let [needed (+ (* next-level-crafted 3)
-                     (- from to))]
+                     (- to from))]
        needed))
    0
    (map vector
@@ -84,13 +84,28 @@
 
 (defn level-plan->str
   [plan]
-  (->> (map vector
-            (reverse (rest plan))
-            res/stone-resource-types)
-       rest
-       (map (fn [[to-make [_stone lvl]]]
-              (str "Make " (int to-make) " level " lvl " stones")))
-       (str/join "\n")))
+  (let [actions
+        (->> (map vector
+                  (->> plan rest reverse (map int))
+                  res/stone-resource-types
+                  (cons "Acquire" (repeat "Make")))
+             (filter (comp pos? first))
+             (map (fn [[to-make [_stone lvl] word]]
+                    (str word " " (int to-make) " lvl" lvl " stone"
+                         (when-not (= 1 to-make) "s")))))]
+    (if (seq actions)
+      (str/join "\n" actions)
+      "Nothing to do!")))
+
+(comment
+  (level-plan->str
+   (level-plan (eval-expr (expr "74lvl1+10lvl3+2lvl5"))
+               (eval-expr (expr "lvl5"))))
+  (level-plan->str
+   (level-plan (eval-expr (expr "369lvl2+16lvl3"))
+               (eval-expr (expr "11lvl5"))))
+  (res/pretty-resources (eval-expr (expr "cost(4lvl6)-cost(500lvl1)")))
+  )
 
 (def token (System/getenv "TOKEN"))
 (def app-id (System/getenv "APP_ID"))
@@ -109,11 +124,11 @@
       (str value "\n= " result))))
 
 (defmethod handle-slash-command :level-plan
-  [{[{from :value} {to :value}] :options}]
-  (let [from (-> from
+  [{[{from-str :value} {to-str :value}] :options}]
+  (let [from (-> from-str
                  expr
                  eval-expr)
-        to (-> to
+        to (-> to-str
                expr
                eval-expr)]
     (cond
@@ -124,8 +139,11 @@
       (print-str to)
 
       :else
-      (level-plan->str
-       (level-plan from to)))))
+      (str
+       "from: " from-str "\n"
+       "to: " to-str "\n"
+       (level-plan->str
+        (level-plan from to))))))
 
 (defn handler
   [{{:keys [type data]} :body :as _request}]
@@ -185,11 +203,3 @@
     (binding [*out* *err*]
       (println "Invalid args: " (str args))
       (System/exit 1))))
-
-(comment
-  (level-plan->str
-   (level-plan (eval-expr (expr "lvl5"))
-               (eval-expr (expr "82lvl1+1lvl3"))))
-  (res/pretty-resources (eval-expr (expr "cost(4lvl6)-cost(500lvl1)")))
-  (register)
-  )
