@@ -104,18 +104,19 @@
         events (a/chan 100
                        (comp (filter (comp #{:interaction-create} first))
                              (map second)))
-        conn (conn/connect-bot! token events :intents #{})]
+        _conn (conn/connect-bot! token events :intents #{})]
      @(msg/create-global-application-command!
               api app-id "calc"
               "Evaluate a stone/resources/costs expression"
-              :options [{:type 3
-                         :name "expression"
-                         :description "The expression to evaluate"}])))
+              :options [{:type        3
+                         :name        "expression"
+                         :description "The expression to evaluate"
+                         :required    true}])))
 
 (defn -main [& args]
   (case args
     nil          (start-server)
-    ("register") (register)
+    ["register"] (register)
     (binding [*out* *err*]
       (println "Invalid args: " (str args))
       (System/exit 1))))

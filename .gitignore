@@ -1,3 +1,5 @@
 .env
 .cpcache
 .nrepl-port
+.replit
+replit.nix
