@@ -11,7 +11,8 @@
    [ring.adapter.jetty :refer [run-jetty]]
    [discljord.messaging :as msg]
    [discljord.connections :as conn]
-   [clojure.core.async :as a]))
+   [clojure.core.async :as a]
+   [clojure.string :as str]))
 
 (def expr
   #_:clj-kondo/ignore
@@ -64,9 +65,67 @@
     :expr     identity}
    tree))
 
+(defn resources->stones
+  [resources]
+  (map #(matrix/mget resources (res/resource-type->int %))
+       res/stone-resource-types))
+
+(defn level-plan
+  [from to]
+  (reductions
+   (fn [next-level-crafted [from to]]
+     (let [needed (+ (* next-level-crafted 3)
+                     (- from to))]
+       needed))
+   0
+   (map vector
+        (reverse (resources->stones from))
+        (reverse (resources->stones to)))))
+
+(defn level-plan->str
+  [plan]
+  (->> (map vector
+            (reverse (rest plan))
+            res/stone-resource-types)
+       rest
+       (map (fn [[to-make [_stone lvl]]]
+              (str "Make " (int to-make) " level " lvl " stones")))
+       (str/join "\n")))
+
 (def token (System/getenv "TOKEN"))
 (def app-id (System/getenv "APP_ID"))
 (def public-key (System/getenv "PUBLIC_KEY"))
+
+(defmulti handle-slash-command (comp keyword :name))
+
+(defmethod handle-slash-command :calc
+  [{[{:keys [value]}] :options}]
+  (let [result (-> value
+                   expr
+                   eval-expr
+                   res/pretty-resources)]
+    (if (ip/failure? result)
+      (print-str result)
+      (str value "\n= " result))))
+
+(defmethod handle-slash-command :level-plan
+  [{[{from :value} {to :value}] :options}]
+  (let [from (-> from
+                 expr
+                 eval-expr)
+        to (-> to
+               expr
+               eval-expr)]
+    (cond
+      (ip/failure? from)
+      (print-str from)
+
+      (ip/failure? to)
+      (print-str to)
+
+      :else
+      (level-plan->str
+       (level-plan from to)))))
 
 (defn handler
   [{{:keys [type data]} :body :as _request}]
@@ -76,16 +135,9 @@
      2 {:type 4
         :data
         {:content
-         (let [[{:keys [value]}] (:options data)
-               result (-> value
-                          expr
-                          eval-expr
-                          res/pretty-resources)]
-           (str "```\n"
-                (if (ip/failure? result)
-                  (print-str result)
-                  (str value "\n= " result))
-                "\n```"))}}
+         (str "```\n"
+              (handle-slash-command data)
+              "\n```")}}
      3 {:type 6}))) ; ACK component presses but do nothing further
 
 (defn start-server
@@ -104,14 +156,27 @@
         events (a/chan 100
                        (comp (filter (comp #{:interaction-create} first))
                              (map second)))
-        _conn (conn/connect-bot! token events :intents #{})]
-     @(msg/create-global-application-command!
-              api app-id "calc"
-              "Evaluate a stone/resources/costs expression"
-              :options [{:type        3
-                         :name        "expression"
-                         :description "The expression to evaluate"
-                         :required    true}])))
+        conn (conn/connect-bot! token events :intents #{})]
+    @(msg/create-global-application-command!
+      api app-id "calc"
+      "Evaluate a stone/resources/costs expression"
+      :options [{:type        3
+                 :name        "expression"
+                 :description "The expression to evaluate"
+                 :required    true}])
+    @(msg/create-global-application-command!
+      api app-id "level-plan"
+      "Tell you how many stones of each type to combine to get you where you want to be."
+      :options [{:type        3
+                 :name        "from"
+                 :description "Your current stones"
+                 :required    true}
+                {:type        3
+                 :name        "to"
+                 :description "You target stones"
+                 :required    true}])
+    (conn/disconnect-bot! conn)
+    (msg/stop-connection! api)))
 
 (defn -main [& args]
   (case args
@@ -122,6 +187,9 @@
       (System/exit 1))))
 
 (comment
+  (level-plan->str
+   (level-plan (eval-expr (expr "lvl5"))
+               (eval-expr (expr "82lvl1+1lvl3"))))
   (res/pretty-resources (eval-expr (expr "cost(4lvl6)-cost(500lvl1)")))
   (register)
   )

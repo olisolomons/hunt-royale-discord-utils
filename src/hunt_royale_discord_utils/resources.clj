@@ -15,10 +15,10 @@
 
 (defn ->resource
   [resource-type]
-  (matrix/set-indices
+  (matrix/mset
    (matrix/zero-vector (count resource-types))
-   [(resource-type->int resource-type)]
-   [1]))
+   (resource-type->int resource-type)
+   1))
 
 (def level-costs
   (into
