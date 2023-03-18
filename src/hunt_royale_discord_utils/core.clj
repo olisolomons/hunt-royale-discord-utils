@@ -11,6 +11,7 @@
    [ring.adapter.jetty :refer [run-jetty]]
    [discljord.messaging :as msg]
    [discljord.connections :as conn]
+   [discljord.formatting :as formatting]
    [clojure.core.async :as a]
    [clojure.string :as str]))
 
@@ -114,48 +115,52 @@
 (defmulti handle-slash-command (comp keyword :name))
 
 (defmethod handle-slash-command :calc
-  [{[{:keys [value]}] :options}]
-  (let [result (-> value
-                   expr
-                   eval-expr
-                   res/pretty-resources)]
-    (if (ip/failure? result)
-      (print-str result)
-      (str value "\n= " result))))
+  [{[{:keys [value]}] :options} _]
+  (formatting/code-block
+   (let [result (-> value
+                    expr
+                    eval-expr
+                    res/pretty-resources)]
+     (if (ip/failure? result)
+       (print-str result)
+       (str value "\n= " result)))))
 
 (defmethod handle-slash-command :level-plan
-  [{[{from-str :value} {to-str :value}] :options}]
-  (let [from (-> from-str
-                 expr
-                 eval-expr)
-        to (-> to-str
-               expr
-               eval-expr)]
-    (cond
-      (ip/failure? from)
-      (print-str from)
+  [{[{from-str :value} {to-str :value}] :options} _]
+  (formatting/code-block
+   (let [from (-> from-str
+                  expr
+                  eval-expr)
+         to (-> to-str
+                expr
+                eval-expr)]
+     (cond
+       (ip/failure? from)
+       (print-str from)
 
-      (ip/failure? to)
-      (print-str to)
+       (ip/failure? to)
+       (print-str to)
 
-      :else
-      (str
-       "from: " from-str "\n"
-       "to: " to-str "\n"
-       (level-plan->str
-        (level-plan from to))))))
+       :else
+       (str
+        "from: " from-str "\n"
+        "to: " to-str "\n"
+        (level-plan->str
+         (level-plan from to)))))))
+
+(defmethod handle-slash-command :trade
+  [{[{hunter :value}] :options} {:keys [member channel_id]}]
+  (str (formatting/mention-user (:user member)) " is looking for " hunter " pieces!"))
 
 (defn handler
-  [{{:keys [type data]} :body :as _request}]
+  [{{:keys [type data] :as body} :body :as _request}]
   (response
    (case type
      1 {:type 1} ; Respond to PING with PONG
      2 {:type 4
         :data
         {:content
-         (str "```\n"
-              (handle-slash-command data)
-              "\n```")}}
+         (handle-slash-command data body)}}
      3 {:type 6}))) ; ACK component presses but do nothing further
 
 (defn start-server
@@ -167,39 +172,55 @@
        (wrap-authenticate public-key))
    {:port 8080}))
 
-(defn register
+(defn connection!
   []
-  (println "registering")
-  (let [api (msg/start-connection! token)
-        events (a/chan 100
-                       (comp (filter (comp #{:interaction-create} first))
-                             (map second)))
-        conn (conn/connect-bot! token events :intents #{})]
-    @(msg/create-global-application-command!
-      api app-id "calc"
-      "Evaluate a stone/resources/costs expression"
-      :options [{:type        3
-                 :name        "expression"
-                 :description "The expression to evaluate"
-                 :required    true}])
-    @(msg/create-global-application-command!
-      api app-id "level-plan"
-      "Tell you how many stones of each type to combine to get you where you want to be."
-      :options [{:type        3
-                 :name        "from"
-                 :description "Your current stones"
-                 :required    true}
-                {:type        3
-                 :name        "to"
-                 :description "You target stones"
-                 :required    true}])
-    (conn/disconnect-bot! conn)
-    (msg/stop-connection! api)))
+  (let [events (a/chan 100 (comp (filter (comp #{:interaction-create} first)) (map second)))]
+    {:api    (msg/start-connection! token)
+     :events events
+     :conn   (conn/connect-bot! token events :intents #{})}))
+
+(defn register-commands!
+  [{:keys [api]}]
+  @(msg/bulk-overwrite-global-application-commands!
+    api app-id
+    [{:name        "calc"
+      :description "Evaluate a stone/resources/costs expression"
+      :options     [{:type        3
+                     :name        "expression"
+                     :description "The expression to evaluate"
+                     :required    true}]}
+     {:name        "level-plan"
+      :description "Tell you how many stones of each type to combine to get you where you want to be."
+      :options     [{:type        3
+                     :name        "from"
+                     :description "Your current stones"
+                     :required    true}
+                    {:type        3
+                     :name        "to"
+                     :description "You target stones"
+                     :required    true}]}
+     {:name        "trade"
+      :description "Request something you want"
+      :options     [{:type        3
+                     :name        "hunter"
+                     :description "The hunter you want"
+                     :required    true}]}]))
 
 (defn -main [& args]
-  (case args
-    nil          (start-server)
-    ["register"] (register)
-    (binding [*out* *err*]
-      (println "Invalid args: " (str args))
-      (System/exit 1))))
+  (start-server))
+
+(comment
+  (def api (msg/start-connection! token))
+  (register-commands! {:api api})
+
+  (def events (a/chan 100
+                      (comp (filter (comp #{:interaction-create} first))
+                            (map second))))
+
+  (def conn (conn/connect-bot! token events :intents #{}))
+
+  (def bot-spam "1077511654792773642")
+  (def messages @(msg/get-channel-messages! api bot-spam :limit 10))
+  (count messages)
+  (filter (comp :bot :author) messages)
+  )
