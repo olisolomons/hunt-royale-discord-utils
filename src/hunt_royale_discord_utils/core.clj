@@ -1,19 +1,20 @@
 (ns hunt-royale-discord-utils.core
   (:gen-class)
   (:require
-   [instaparse.core :as ip]
+   [clojure.core.async :as a]
    [clojure.core.matrix :as matrix]
-   [hunt-royale-discord-utils.nice-parser :refer [nice-parser]]
-   [hunt-royale-discord-utils.resources :as res]
-   [ring-discord-auth.ring :refer [wrap-authenticate]]
-   [ring.middleware.json :refer [wrap-json-body wrap-json-response]]
-   [ring.util.response :refer [response]]
-   [ring.adapter.jetty :refer [run-jetty]]
-   [discljord.messaging :as msg]
+   [clojure.string :as str]
    [discljord.connections :as conn]
    [discljord.formatting :as formatting]
-   [clojure.core.async :as a]
-   [clojure.string :as str]))
+   [discljord.messaging :as msg]
+   [hunt-royale-discord-utils.nice-parser :refer [nice-parser]]
+   [hunt-royale-discord-utils.resources :as res]
+   [instaparse.core :as ip]
+   [juxt.clip.core :as clip]
+   [ring-discord-auth.ring :refer [wrap-authenticate]]
+   [ring.adapter.jetty :refer [run-jetty]]
+   [ring.middleware.json :refer [wrap-json-body wrap-json-response]]
+   [ring.util.response :refer [response]]))
 
 (def expr
   #_:clj-kondo/ignore
@@ -108,10 +109,6 @@
   (res/pretty-resources (eval-expr (expr "cost(4lvl6)-cost(500lvl1)")))
   )
 
-(def token (System/getenv "TOKEN"))
-(def app-id (System/getenv "APP_ID"))
-(def public-key (System/getenv "PUBLIC_KEY"))
-
 (defmulti handle-slash-command (comp keyword :name))
 
 (defmethod handle-slash-command :calc
@@ -164,25 +161,37 @@
      3 {:type 6}))) ; ACK component presses but do nothing further
 
 (defn start-server
-  []
+  [public-key]
   (run-jetty
    (-> handler
        wrap-json-response
        (wrap-json-body {:keywords? true})
        (wrap-authenticate public-key))
-   {:port 8080}))
+   {:port 8080 :join? false}))
 
-(defn connection!
-  []
-  (let [events (a/chan 100 (comp (filter (comp #{:interaction-create} first)) (map second)))]
-    {:api    (msg/start-connection! token)
-     :events events
-     :conn   (conn/connect-bot! token events :intents #{})}))
+(defn stop-server
+  [server]
+  (.stop server)
+  (.join server))
+
+(defn get-env
+  [name]
+  (or (System/getenv name) (System/getProperty name)))
+
+(def system-config
+  {:components
+   {:token      {:start `(get-env "TOKEN")}
+    :app-id     {:start `(get-env "APP_ID")}
+    :public-key {:start `(get-env "PUBLIC_KEY")}
+    :discord    {:start `(msg/start-connection! ~(clip/ref :token))
+                 :stop  `msg/stop-connection!}
+    :server     {:start `(start-server ~(clip/ref :public-key))
+                 :stop  `stop-server}}})
 
 (defn register-commands!
-  [{:keys [api]}]
+  [{:keys [discord app-id]}]
   @(msg/bulk-overwrite-global-application-commands!
-    api app-id
+    discord app-id
     [{:name        "calc"
       :description "Evaluate a stone/resources/costs expression"
       :options     [{:type        3
@@ -206,10 +215,18 @@
                      :description "The hunter you want"
                      :required    true}]}]))
 
-(defn -main [& args]
-  (start-server))
+(defn -main [& _]
+  ;; start
+  (clip/start system-config)
+  ;; block forever
+  @(promise))
 
 (comment
+  (require '[juxt.clip.repl :as clip-repl])
+  (clip-repl/set-init! (constantly system-config))
+  (clip-repl/start)
+  (clip-repl/system)
+
   (def api (msg/start-connection! token))
   (register-commands! {:api api})
 
@@ -222,5 +239,10 @@
   (def bot-spam "1077511654792773642")
   (def messages @(msg/get-channel-messages! api bot-spam :limit 10))
   (count messages)
-  (filter (comp :bot :author) messages)
+  (def trade-messages (filter (comp #{"trade"} :name :interaction) messages))
+  (def trades-messages-for-user
+    (filter (comp #{"274309055592398848"} :id :user :interaction) trade-messages))
+  (count )
+  (def res (msg/delete-message! api bot-spam "1086810273568002199"))
+  @res
   )
