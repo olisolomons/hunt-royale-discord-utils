@@ -146,24 +146,36 @@
          (level-plan from to)))))))
 
 (defmethod handle-slash-command :trade
-  [{[{hunter :value}] :options} {:keys [member channel_id]}]
+  [{[{hunter :value}] :options} {{:keys [member channel_id]} :body discord :discord :as request}]
+  (def request request)
+  (->> (msg/get-channel-messages! discord channel_id :limit 100)
+       deref
+       (filter (comp #{"trade"} :name :interaction))
+       (filter (comp #{(-> member :user :id)} :id :user :interaction))
+       (map
+        (fn [message] @(msg/delete-message! discord channel_id (:id message))))
+       doall)
   (str (formatting/mention-user (:user member)) " is looking for " hunter " pieces!"))
 
 (defn handler
-  [{{:keys [type data] :as body} :body :as _request}]
+  [{{:keys [type data] :as body} :body :as request}]
   (response
    (case type
      1 {:type 1} ; Respond to PING with PONG
      2 {:type 4
         :data
         {:content
-         (handle-slash-command data body)}}
+         (handle-slash-command data request)}}
      3 {:type 6}))) ; ACK component presses but do nothing further
 
+(defn wrap-discord [handler discord]
+  (fn [request] (handler (assoc request :discord discord))))
+
 (defn start-server
-  [public-key]
+  [discord public-key]
   (run-jetty
    (-> handler
+       (wrap-discord discord)
        wrap-json-response
        (wrap-json-body {:keywords? true})
        (wrap-authenticate public-key))
@@ -185,7 +197,7 @@
     :public-key {:start `(get-env "PUBLIC_KEY")}
     :discord    {:start `(msg/start-connection! ~(clip/ref :token))
                  :stop  `msg/stop-connection!}
-    :server     {:start `(start-server ~(clip/ref :public-key))
+    :server     {:start `(start-server ~(clip/ref :discord) ~(clip/ref :public-key))
                  :stop  `stop-server}}})
 
 (defn register-commands!
@@ -223,26 +235,8 @@
 
 (comment
   (require '[juxt.clip.repl :as clip-repl])
-  (clip-repl/set-init! (constantly system-config))
-  (clip-repl/start)
-  (clip-repl/system)
 
-  (def api (msg/start-connection! token))
-  (register-commands! {:api api})
+  (register-commands! clip-repl/system)
+  (def discord (:discord clip-repl/system))
 
-  (def events (a/chan 100
-                      (comp (filter (comp #{:interaction-create} first))
-                            (map second))))
-
-  (def conn (conn/connect-bot! token events :intents #{}))
-
-  (def bot-spam "1077511654792773642")
-  (def messages @(msg/get-channel-messages! api bot-spam :limit 10))
-  (count messages)
-  (def trade-messages (filter (comp #{"trade"} :name :interaction) messages))
-  (def trades-messages-for-user
-    (filter (comp #{"274309055592398848"} :id :user :interaction) trade-messages))
-  (count )
-  (def res (msg/delete-message! api bot-spam "1086810273568002199"))
-  @res
   )

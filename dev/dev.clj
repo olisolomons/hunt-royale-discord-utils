@@ -17,4 +17,5 @@
 
 (comment
   (start)
+  (reset)
   system)
