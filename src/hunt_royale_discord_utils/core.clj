@@ -1,13 +1,13 @@
 (ns hunt-royale-discord-utils.core
   (:gen-class)
   (:require
-   [clojure.core.async :as a]
-   [clojure.core.matrix :as matrix]
    [clojure.string :as str]
-   [discljord.connections :as conn]
+   [clojure.walk :as walk]
    [discljord.formatting :as formatting]
    [discljord.messaging :as msg]
-   [hunt-royale-discord-utils.nice-parser :refer [nice-parser]]
+   [hunt-royale-discord-utils.expr :as expr]
+   [hunt-royale-discord-utils.gear :as gear]
+   [hunt-royale-discord-utils.level-plan :as level-plan]
    [hunt-royale-discord-utils.resources :as res]
    [instaparse.core :as ip]
    [juxt.clip.core :as clip]
@@ -16,138 +16,99 @@
    [ring.middleware.json :refer [wrap-json-body wrap-json-response]]
    [ring.util.response :refer [response]]))
 
-(def expr
-  #_:clj-kondo/ignore
-  (nice-parser
-   {:expr       :-expr
-    (<> :-expr) #{:add :sub :term}
-    :add        [:-expr (<> :space) (<> "+") (<> :space) :term]
-    :sub        [:-expr (<> :space) (<> "-") (<> :space) :term]
-    :fn         [#{"cost"} (<> :space)
-                 (<> "(") (<> :space)
-                 :-expr
-                 (<> :space) (<> ")")]
-    (<> :term)  #{:stones
-                  :resource
-                  :fn
-                  [(<> "(") (<> :space)
-                   :-expr
-                   (<> :space) (<> ")")]}
-
-    :stones      [(? :stone-count) (<> "lvl") :stone-lvl]
-    :stone-lvl   #"[1-6]"
-    :stone-count :nat
-    :resource    [:nat (set (map name res/basic-resource-types))]
-
-    :nat   #"[0-9]+"
-    :space #"\s*"}
-   :expr))
-
-(defn eval-expr
-  [tree]
-  (ip/transform
-   {:nat      clojure.edn/read-string
-    :resource (fn [quantity resource-type]
-                (matrix/mul
-                 (res/->resource (keyword resource-type))
-                 quantity))
-    :stones   (fn [& value]
-                (let [{:keys [stone-count stone-lvl]} (into {} value)]
-                  (matrix/mul
-                   (res/->resource [:stone
-                                    (clojure.edn/read-string
-                                     stone-lvl)])
-                   (or stone-count 1))))
-    :add      matrix/add
-    :sub      matrix/sub
-    :fn       (fn [fn-name arg]
-                (case fn-name
-                  "cost"
-                  (matrix/mmul arg res/cumulative-level-costs-matrix)))
-    :expr     identity}
-   tree))
-
-(defn resources->stones
-  [resources]
-  (map #(matrix/mget resources (res/resource-type->int %))
-       res/stone-resource-types))
-
-(defn level-plan
-  [from to]
-  (reductions
-   (fn [next-level-crafted [from to]]
-     (let [needed (+ (* next-level-crafted 3)
-                     (- to from))]
-       needed))
-   0
-   (map vector
-        (reverse (resources->stones from))
-        (reverse (resources->stones to)))))
-
-(defn level-plan->str
-  [plan]
-  (let [actions
-        (->> (map vector
-                  (->> plan rest reverse (map int))
-                  res/stone-resource-types
-                  (cons "Acquire" (repeat "Make")))
-             (filter (comp pos? first))
-             (map (fn [[to-make [_stone lvl] word]]
-                    (str word " " (int to-make) " lvl" lvl " stone"
-                         (when-not (= 1 to-make) "s")))))]
-    (if (seq actions)
-      (str/join "\n" actions)
-      "Nothing to do!")))
-
-(comment
-  (level-plan->str
-   (level-plan (eval-expr (expr "74lvl1+10lvl3+2lvl5"))
-               (eval-expr (expr "lvl5"))))
-  (level-plan->str
-   (level-plan (eval-expr (expr "369lvl2+16lvl3"))
-               (eval-expr (expr "11lvl5"))))
-  (res/pretty-resources (eval-expr (expr "cost(4lvl6)-cost(500lvl1)")))
-  )
-
 (defmulti handle-slash-command (comp keyword :name))
+
+(defmethod handle-slash-command :loadouts
+  [{[{loadouts :value}] :options} _]
+  {:content
+   (formatting/code-block
+    (let [parsed
+          (-> loadouts
+              gear/loadouts
+              gear/parsed->map)]
+      (if (ip/failure? parsed)
+        (print-str parsed)
+        (if-let [answer (->> parsed
+                          (map gear/map->)
+                          gear/optimise-loadouts)]
+          (let [unique-pieces
+                (distinct (mapcat identity answer))
+                gems-needed
+                (gear/->map (apply map + (map :stones unique-pieces)))
+                loadouts-indexed
+                (zipmap
+                 (map gear/map->string parsed)
+                 (map vec
+                      (walk/postwalk-replace
+                       (zipmap unique-pieces (rest (range)))
+                       answer)))]
+            (str "Input: " loadouts
+                 "\n\n"
+                 "Gems needed: " (gear/map->string gems-needed)
+                 "\n"
+                 "All weapons:\n"
+                 (str/join
+                  "\n"
+                  (map-indexed
+                   (fn [index {:keys [type stones]}]
+                     (str "(" (inc index) ") "
+                          (name type) ": "
+                          (gear/map->string (gear/->map stones))))
+                   unique-pieces))
+                 "\n\n"
+                 "Loadouts:\n"
+                 (str/join
+                  "\n"
+                  (map
+                   (fn [[loadout [piece-a piece-b]]]
+                     (str " - Loadout \"" loadout
+                          "\" uses gear pieces ("
+                          piece-a
+                          ") and (" piece-b ")"))
+                   loadouts-indexed))))
+          (str "Input: " loadouts
+               "\nOnly 6 weapon slots are currently supported")))))})
 
 (defmethod handle-slash-command :calc
   [{[{:keys [value]}] :options} _]
-  (formatting/code-block
-   (let [result (-> value
-                    expr
-                    eval-expr
-                    res/pretty-resources)]
-     (if (ip/failure? result)
-       (print-str result)
-       (str value "\n= " result)))))
+  {:content
+   (formatting/code-block
+    (let [result (-> value
+                     expr/expr
+                     expr/eval-expr
+                     res/pretty-resources)]
+      (if (ip/failure? result)
+        (print-str result)
+        (str value "\n= " result))))})
 
 (defmethod handle-slash-command :level-plan
   [{[{from-str :value} {to-str :value}] :options} _]
-  (formatting/code-block
-   (let [from (-> from-str
-                  expr
-                  eval-expr)
-         to (-> to-str
-                expr
-                eval-expr)]
-     (cond
-       (ip/failure? from)
-       (print-str from)
+  {:content
+   (formatting/code-block
+    (let [from (-> from-str
+                   expr/expr
+                   expr/eval-expr)
+          to (-> to-str
+                 expr/expr
+                 expr/eval-expr)]
+      (cond
+        (ip/failure? from)
+        (print-str from)
 
-       (ip/failure? to)
-       (print-str to)
+        (ip/failure? to)
+        (print-str to)
 
-       :else
-       (str
-        "from: " from-str "\n"
-        "to: " to-str "\n"
-        (level-plan->str
-         (level-plan from to)))))))
+        :else
+        (str
+         "from: " from-str "\n"
+         "to: " to-str "\n"
+         (level-plan/level-plan->str
+          (level-plan/level-plan from to))))))})
 
 (defmethod handle-slash-command :trade
-  [{[{hunter :value}] :options} {{:keys [member channel_id]} :body discord :discord :as request}]
-  (def request request)
+  [{[{hunter :value}] :options}
+   {{:keys [member channel_id]} :body
+    discord                     :discord}]
   (->> (msg/get-channel-messages! discord channel_id :limit 100)
        deref
        (filter (comp #{"trade"} :name :interaction))
@@ -155,7 +116,15 @@
        (map
         (fn [message] @(msg/delete-message! discord channel_id (:id message))))
        doall)
-  (str (formatting/mention-user (:user member)) " is looking for " hunter " pieces!"))
+  (if (seq hunter)
+    {:content
+     (str (formatting/mention-user (:user member))
+          " is looking for "
+          hunter " pieces!")}
+    {:content (str "Your previous trade has been removed! "
+                   "(If there was one, anyway...)")
+     ;; ephemeral
+     :flags (bit-shift-left 1 6)}))
 
 (defn handler
   [{{:keys [type data] :as body} :body :as request}]
@@ -164,8 +133,7 @@
      1 {:type 1} ; Respond to PING with PONG
      2 {:type 4
         :data
-        {:content
-         (handle-slash-command data request)}}
+        (handle-slash-command data request)}
      3 {:type 6}))) ; ACK component presses but do nothing further
 
 (defn wrap-discord [handler discord]
@@ -225,6 +193,12 @@
       :options     [{:type        3
                      :name        "hunter"
                      :description "The hunter you want"
+                     :required    true}]}
+     {:name        "loadouts"
+      :description "Find an optimal gem configuration for sharing weapons between loadouts in maze gear."
+      :options     [{:type        3
+                     :name        "loadouts"
+                     :description "A comma separated list of loadouts, where each loadout is the 6 gems on your weapons, e.g. \"6g,3b3g\""
                      :required    true}]}]))
 
 (defn -main [& _]
