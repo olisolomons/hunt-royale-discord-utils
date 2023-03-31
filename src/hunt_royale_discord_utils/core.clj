@@ -140,14 +140,14 @@
   (fn [request] (handler (assoc request :discord discord))))
 
 (defn start-server
-  [discord public-key]
+  [port discord public-key]
   (run-jetty
    (-> handler
        (wrap-discord discord)
        wrap-json-response
        (wrap-json-body {:keywords? true})
        (wrap-authenticate public-key))
-   {:port 8080 :join? false}))
+   {:port port :join? false}))
 
 (defn stop-server
   [server]
@@ -155,17 +155,22 @@
   (.join server))
 
 (defn get-env
-  [name]
-  (or (System/getenv name) (System/getProperty name)))
+  ([name]
+   (get-env name nil))
+  ([name default]
+   (or (System/getenv name) (System/getProperty name) default)))
 
 (def system-config
   {:components
    {:token      {:start `(get-env "TOKEN")}
     :app-id     {:start `(get-env "APP_ID")}
     :public-key {:start `(get-env "PUBLIC_KEY")}
+    :port       {:start #(Integer/parseInt (get-env "PORT" "8080"))}
     :discord    {:start `(msg/start-connection! ~(clip/ref :token))
                  :stop  `msg/stop-connection!}
-    :server     {:start `(start-server ~(clip/ref :discord) ~(clip/ref :public-key))
+    :server     {:start `(start-server ~(clip/ref :port)
+                                       ~(clip/ref :discord)
+                                       ~(clip/ref :public-key))
                  :stop  `stop-server}}})
 
 (defn register-commands!
