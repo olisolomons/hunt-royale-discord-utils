@@ -9,17 +9,12 @@
 (def expr
   #_:clj-kondo/ignore
   (nice-parser
-   {:expr       :-expr
+   {:expr       [(<> :space) :-expr (<> :space)]
     (<> :-expr) #{:add :sub :term}
     :add        [:-expr (<> :space) (<> "+") (<> :space) :term]
     :sub        [:-expr (<> :space) (<> "-") (<> :space) :term]
-    :fn         [#{"cost"} (<> :space)
-                 (<> "(") (<> :space)
-                 :-expr
-                 (<> :space) (<> ")")]
     (<> :term)  #{:stones
-                  :resource
-                  :fn
+                  ;; :resource
                   [(<> "(") (<> :space)
                    :-expr
                    (<> :space) (<> ")")]}
@@ -50,9 +45,5 @@
                    (or stone-count 1))))
     :add      matrix/add
     :sub      matrix/sub
-    :fn       (fn [fn-name arg]
-                (case fn-name
-                  "cost"
-                  (matrix/mmul arg res/cumulative-level-costs-matrix)))
     :expr     identity}
    tree))

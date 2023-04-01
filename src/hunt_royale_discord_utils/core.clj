@@ -8,7 +8,6 @@
    [hunt-royale-discord-utils.expr :as expr]
    [hunt-royale-discord-utils.gear :as gear]
    [hunt-royale-discord-utils.level-plan :as level-plan]
-   [hunt-royale-discord-utils.resources :as res]
    [instaparse.core :as ip]
    [juxt.clip.core :as clip]
    [ring-discord-auth.ring :refer [wrap-authenticate]]
@@ -68,18 +67,6 @@
                    loadouts-indexed))))
           (str "Input: " loadouts
                "\nOnly 6 weapon slots are currently supported")))))})
-
-(defmethod handle-slash-command :calc
-  [{[{:keys [value]}] :options} _]
-  {:content
-   (formatting/code-block
-    (let [result (-> value
-                     expr/expr
-                     expr/eval-expr
-                     res/pretty-resources)]
-      (if (ip/failure? result)
-        (print-str result)
-        (str value "\n= " result))))})
 
 (defmethod handle-slash-command :level-plan
   [{[{from-str :value} {to-str :value}] :options} _]
@@ -177,13 +164,7 @@
   [{:keys [discord app-id]}]
   @(msg/bulk-overwrite-global-application-commands!
     discord app-id
-    [{:name        "calc"
-      :description "Evaluate a stone/resources/costs expression"
-      :options     [{:type        3
-                     :name        "expression"
-                     :description "The expression to evaluate"
-                     :required    true}]}
-     {:name        "level-plan"
+    [{:name        "level-plan"
       :description "Tell you how many stones of each type to combine to get you where you want to be."
       :options     [{:type        3
                      :name        "from"
