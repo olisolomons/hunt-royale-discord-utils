@@ -127,7 +127,7 @@
      :flags (bit-shift-left 1 6)}))
 
 (defn handler
-  [{{:keys [type data] :as body} :body :as request}]
+  [{{:keys [type data] :as _body} :body :as request}]
   (response
    (case type
      1 {:type 1} ; Respond to PING with PONG

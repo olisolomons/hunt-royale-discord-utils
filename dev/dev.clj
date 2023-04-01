@@ -2,7 +2,7 @@
   (:require
    [clojure.java.io :as io]
    [hunt-royale-discord-utils.core :as hr]
-   [juxt.clip.repl :refer [start stop reset set-init! system]]))
+   [juxt.clip.repl :refer [start reset set-init! system]]))
 
 (set-init! (constantly hr/system-config))
 
