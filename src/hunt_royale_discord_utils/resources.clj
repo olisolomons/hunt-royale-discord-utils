@@ -27,19 +27,21 @@
    (zipmap [:dd :kk :yy :epic]
            (repeat [5 10 20 50 100]))))
 
+(def level-costs-matrix
+  (->> level-costs
+       (map (fn [[resource-type costs]]
+              (map #(matrix/mul (->resource resource-type) %)
+                   (cons 0 costs))))
+       (apply map matrix/add)
+       matrix/matrix))
+
 (def cumulative-level-costs-matrix
-  (let [level-costs-resources
-        (->> level-costs
-             (map (fn [[resource-type costs]]
-                    (map #(matrix/mul (->resource resource-type) %)
-                         costs)))
-             (apply map matrix/add))
-        stone-costs
+  (let [stone-costs
         (zipmap stone-resource-types
                 (reductions
                  (fn [acc cost] (matrix/add cost (matrix/mul 3 acc)))
-                 (matrix/mul (->resource [:stone 1]) 1)
-                 level-costs-resources))
+                 (->resource [:stone 1])
+                 (rest level-costs-matrix)))
         costs
         (into stone-costs
               (map (juxt identity ->resource)
