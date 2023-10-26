@@ -20,7 +20,7 @@
                    (<> :space) (<> ")")]}
 
     :stones      [(? :stone-count) (<> "lvl") :stone-lvl]
-    :stone-lvl   #"[1-6]"
+    :stone-lvl   #"[1-7]"
     :stone-count :nat
     :resource    [:nat (set (map name res/basic-resource-types))]
 

@@ -7,7 +7,7 @@
 (matrix/set-current-implementation :vectorz)
 
 (def basic-resource-types [:gold :maze :dd :kk :yy :epic])
-(def stone-resource-types (map vector (repeat :stone) (range 1 7)))
+(def stone-resource-types (map vector (repeat :stone) (range 1 (inc 7))))
 (def resource-types (concat basic-resource-types
                             stone-resource-types))
 
@@ -22,10 +22,10 @@
 
 (def level-costs
   (into
-   {:gold [50 100 400 1000 2000]
-    :maze [25 75 250 750 1500]}
+   {:gold [50 100 400 1000 2000 5000]
+    :maze [25 75 250 750 1500 5000]}
    (zipmap [:dd :kk :yy :epic]
-           (repeat [5 10 20 50 100]))))
+           (repeat [5 10 20 50 100 1000]))))
 
 (def level-costs-matrix
   (->> level-costs
