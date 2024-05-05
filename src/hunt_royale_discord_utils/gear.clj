@@ -4,7 +4,7 @@
    [instaparse.core :as ip]
    [clojure.string :as str]))
 
-(def colours [:r :g :b :p :w :y])
+(def colours [:r :g :b :p :w :y :a :e :z])
 (defn ->map
   [nums]
   (->> (map vector
